@@ -6,6 +6,7 @@ import Control.Concurrent
 import Control.Monad
 import System.Environment
 import Data.Maybe (fromJust)
+import Enigma
 
 sendDatagram msg port ip = do
 	(serveraddr:_) <- getAddrInfo Nothing (Just ip) (Just port)
@@ -14,7 +15,7 @@ sendDatagram msg port ip = do
 	send sock msg
 	Network.Socket.close sock
 
-listenPort port = withSocketsDo $ bracket getSocket sClose handler
+listenPort port d1TB d2TB d3TB d4TB estadosd1 estadosd2 estadosd3 = withSocketsDo $ bracket getSocket sClose handler
 	where 
 		getSocket = do
 			(serveraddr:_) <- getAddrInfo
@@ -24,12 +25,22 @@ listenPort port = withSocketsDo $ bracket getSocket sClose handler
 			bindSocket sock (addrAddress serveraddr) >> return sock
 		handler conn = do
 			(msg,n,d) <- recvFrom conn 1024
-			logMessage $ (takeWhile (/=':') $ show d) ++ ":\t" ++ msg 
+			d1 <- get d1TB text
+			d2 <- get d2TB text
+			d3 <- get d3TB text
+			d4 <- get d4TB text
+			e1 <- get estadosd1 selection 
+			e2 <- get estadosd2 selection 
+			e3 <- get estadosd3 selection 
+			let (msg', (e'1,e'2, e'3))  = (cifrar (d1,d2,d3,d4) (e1,e2,e3)) msg
+			set estadosd1 [selection := e'1] 
+			set estadosd2 [selection := e'2] 
+			set estadosd3 [selection := e'3] 
+			logMessage $ (takeWhile (/=':') $ show d) ++ ":\t" ++ msg' 
 			if null msg then handler conn else sendTo conn msg d >> handler conn
 
 main = do
 	(puertoEnt:args) <- getArgs
-	h1 <- forkOS (listenPort puertoEnt)
 	start (gui puertoEnt)
 
 gui puertoEnt= do
@@ -65,10 +76,10 @@ gui puertoEnt= do
 
 	checkEngmtxt <- textCtrl enigma3 [enabled := False, wrap := WrapNone]
 	checkEngmbtn <- button 	 enigma3 [enabled := True , text := "Comprobar", on command := set checkEngmtxt [enabled :~ not]]
-	estadosd1 	 <- choice 	 enigma3 [enabled := True, items :=  alfabeto] 
-	estadosd2 	 <- choice 	 enigma3 [enabled := True, items :=  alfabeto] 
-	estadosd3 	 <- choice 	 enigma3 [enabled := True, items :=  alfabeto] 
-	estadosrev 	 <- choice 	 enigma3 [enabled := True, items :=  alfabeto] 
+	estadosd1 	 <- singleListBox enigma3 [enabled := True, items :=  alfabeto, clientSize := (sz 10 10)] 
+	estadosd2 	 <- singleListBox enigma3 [enabled := True, items :=  alfabeto] 
+	estadosd3 	 <- singleListBox enigma3 [enabled := True, items :=  alfabeto] 
+	estadosrev 	 <- singleListBox enigma3 [enabled := True, items :=  alfabeto] 
 
 	--Chat Log
 	chatlog <- textCtrl p [enabled := False, wrap := WrapNone]
@@ -78,19 +89,35 @@ gui puertoEnt= do
 	mensajes	<- panel f []
 	mensaje 	<- textCtrl mensajes [enabled := True, wrap := WrapNone]
 	msjbtn		<- button mensajes   [enabled := True, text := "Enviar", on command := do 
-		msg <- get mensaje text
+		d1 <- get d1TB text
+		d2 <- get d2TB text
+		d3 <- get d3TB text
+		d4 <- get revTB text
+		e1 <- get estadosd1 selection 
+		e2 <- get estadosd2 selection 
+		e3 <- get estadosd3 selection 
+		msg' <- get mensaje text
+		(msg, (e'1,e'2, e'3))  <- fmap (cifrar (d1,d2,d3,d4) (e1,e2,e3)) $ get mensaje text
 		port <- get psTB text
 		ip <- get ipTB text
 		unless (null msg) $ do
-			logMessage ("Tú:\t\t\t" ++ msg)
+			logMessage ("Tú:\t\t\t" ++ msg')
 			sendDatagram msg port ip
 		set mensaje [text := ""]
+		set estadosd1 [selection := e'1] 
+		set estadosd2 [selection := e'2] 
+		set estadosd3 [selection := e'3] 
 		return ()]
-	
 
+
+	
+	--Para debuggear
+	set ipTB [text := "localhost"]
+	set psTB [text := "9999"]
 
 	--Ensamblado ventana
 	set checkEngmtxt [clientSize := (sz 10 200)]
+	h1 <- forkOS (listenPort puertoEnt d1TB d2TB d3TB revTB estadosd1 estadosd2 estadosd3)
 
 	set f [ layout := 
 			hfill $ container p $ margin 10 $ floatCentre $ column 6 [
